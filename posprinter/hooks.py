@@ -48,7 +48,8 @@ app_license = "mit"
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 doctype_js = {
-    "Ha Pos Invoice": "public/js/havanopos.js"
+    "Ha Pos Invoice": "public/js/havanopos.js",
+    "Quotation": "public/js/havanopos.js"
 }
 # Svg Icons
 # ------------------
