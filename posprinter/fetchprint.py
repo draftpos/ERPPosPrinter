@@ -1,5 +1,6 @@
 import frappe
 import json
+from datetime import datetime
 
 @frappe.whitelist()
 def generate_invoice_json(invoice_id):
@@ -75,6 +76,111 @@ def generate_invoice_json(invoice_id):
         "Subtotal": invoice.sub_total,
         "TotalVat": "0.00",
         "GrandTotal": invoice.sub_total,
+        "TaxType": "Standard VAT",
+        "PaymentMode": "Cash",
+    }
+
+    return json.dumps(data, indent=2, default=str)
+
+@frappe.whitelist()
+def generate_quotation_json(quote_id):
+    # --- Get Invoice ---
+    quote = frappe.get_doc("Quotation", quote_id)
+
+    # --- Get Company Info ---
+    company_name = frappe.db.get_single_value('Global Defaults', 'default_company')
+    company = frappe.get_doc("Company", company_name)
+    currency = frappe.db.get_value('Company', company, 'default_currency')
+    # --- Get Customer Info (custom doctype linked by customer name) ---
+    customer_doc = frappe.get_doc("Customer", quote.customer_name)
+
+    # --- Get Logged-in User (Cashier) ---
+    cashier_name = frappe.db.get_value("User", frappe.session.user, "full_name")
+
+    # --- Get Invoice Items ---
+    items = frappe.get_all(
+        "Quotation Item",
+        filters={"parent": quote.name},
+        fields=["item_name as ProductName", "item_code as productid", "qty as Qty",
+                "rate as Price", "amount as Amount"]
+    )
+    #print(items)
+    #, "vat as vat"
+    for item in items:
+        item_code = item.get("productid")
+        print(item_code)
+        # -------- Get Item Tax Category from Item Doctype -------
+        tax_category = frappe.db.get_value(
+            "Item Tax",
+            {"parent": item_code},   # filter by parent (item_code)
+            "tax_category"
+        )
+        tax_rate = 0
+        tax_amount = 0
+        print(tax_category)
+
+        # -------- If VAT category, fetch maximum_net_rate -------
+        if tax_category == "VAT":
+            # Fetch the Item Tax record for VAT
+            tax_info = frappe.get_all(
+                "Item Tax",
+                filters={"parent": item_code},
+                fields=["maximum_net_rate"]
+            )
+            if tax_info:
+                tax_rate = tax_info[0].maximum_net_rate or 0
+
+            # -------- Calculate tax amount --------
+            tax_amount = (tax_rate/100) *  item.get("Amount", 0)
+            tax_amount = float(f"{tax_amount:.2f}")
+
+        # Add new fields to item
+        item["tax_rate"] = tax_rate
+        item["tax_amount"] = tax_amount
+        
+    # --- Build JSON Data ---
+    date_str = str(quote.creation)
+    dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S.%f")
+    # Format to yyyy-MM-dd
+    formatted_date = dt.strftime("%Y-%m-%d")
+    data = {
+        "doc_type":"Quote",
+        "CompanyName": company.company_name,
+        "CompanyAddress": company.custom_company_email or "",
+        "City": company.custom_city or "",
+        "State": company.custom_state or "",
+        "postcode": company.custom_post_code or "",
+        "contact": company.custom_contact_number or "",
+        "CompanyEmail": company.custom_company_email or "",
+        "TIN": company.custom_tin or "",
+        "VATNo": company.custom_vat or "",
+        "Tel": company.custom_contact_number or "",
+
+        "InvoiceNo": quote.name,
+        "InvoiceDate": str(formatted_date),
+        "CashierName": cashier_name,
+
+        "CustomerName": customer_doc.customer_name,
+        "CustomerContact": customer_doc.customer_name,   # You may adjust if you have a field for contact
+        "CustomerTradeName": getattr(customer_doc, "trade_name", None),
+        "CustomerEmail": getattr(customer_doc, "email_id", None),
+        "CustomerTIN": getattr(customer_doc, "tin", None),
+        "CustomerVAT": getattr(customer_doc, "vat", None),
+        "Customeraddress": getattr(customer_doc, "customer_address", None),
+
+        "itemlist": items,
+
+        "AmountTendered": str(quote.grand_total or "0"),
+        "Change":  "0",
+        "Currency": currency or "USD",
+        "Footer": "Thank you for your support!",
+
+
+
+        "DiscAmt": "0.0",
+        "Subtotal": quote.grand_total,
+        "TotalVat": "0.00",
+        "GrandTotal": quote.grand_total,
         "TaxType": "Standard VAT",
         "PaymentMode": "Cash",
     }
